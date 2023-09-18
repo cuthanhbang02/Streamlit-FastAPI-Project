@@ -41,7 +41,7 @@ def update_calo(date: str, calo: schemas.UpdateCaloSchema, db: Session = Depends
     calo_query = db.query(models.Calo).filter(models.Calo.created_date == date)
     updated_calo = calo_query.first()
     if not updated_calo:
-        raise HTTPException(status_code=status.HTTP_200_OK,
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail=f'No calories record with this date: {date} found')
     calo_query.update(calo.dict(exclude_unset=True), synchronize_session=False)
     db.commit()
