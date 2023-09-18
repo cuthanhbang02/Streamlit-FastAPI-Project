@@ -38,3 +38,5 @@ alembic init alembic
 
 alembic revision --autogenerate -m "creat users table"
 alembic upgrade head
+deploy: 
+ssh -R 80:localhost:8501 localhost.run

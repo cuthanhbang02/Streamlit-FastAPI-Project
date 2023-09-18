@@ -4,6 +4,15 @@ import requests
 import datetime
 import altair as alt
 from datetime import datetime
+import torch
+from PIL import Image
+from torchvision import transforms
+from facenet_pytorch import fixed_image_standardization,  MTCNN, InceptionResnetV1
+import joblib
+import numpy as np
+import os
+from sklearn.svm import SVC
+from sklearn.model_selection import RandomizedSearchCV, GridSearchCV
 # logged_in = requests.get("http://localhost:8000/api/users/me")
 # if logged_in.status_code == 200:
 #     logged_in = True
@@ -119,7 +128,7 @@ if logged_in:
             st.sidebar.error("Invalid values")
         if updated.status_code == 404:
             st.sidebar.error("Not found record on this date")
-        if updated.status_code == 200:
+        else:
             st.sidebar.success("Updated")
 #Content
     data = load_data()
@@ -237,6 +246,25 @@ if logged_in:
         index=data.year_week.unique().tolist().index(data.year_week.unique().tolist()[-1]),
     )
 
+    c5 = (
+        alt.Chart(data[data.date > d.date()].groupby("date")["calo_diff"].sum().reset_index())
+        .mark_bar(color="orange", size=1)
+        .encode(
+            alt.Y(
+                "calo_diff",
+                scale=alt.Scale(domain=[data["calo_diff"].min() * 1.1, data["calo_diff"].max() * 1.1]),
+                title="Calories remained by date",
+            ),
+            x=alt.X("date:T", title="Date"),
+            tooltip=["calo_diff"],
+        )
+        .properties(height=400, width=300)
+        .interactive()
+    )
+
+
+    st.altair_chart(c5, use_container_width=True)
+
     c4 = (
         alt.Chart(data[data.year_week == options])
         .mark_circle(color="yellow")
@@ -259,23 +287,37 @@ if logged_in:
 
     st.altair_chart(c4, use_container_width=True)
 
-    c5 = (
-        alt.Chart(data[data.date > d.date()].groupby("date")["calo_diff"].sum().reset_index())
-        .mark_bar(color="orange", size=1)
-        .encode(
-            alt.Y(
-                "calo_diff",
-                scale=alt.Scale(domain=[data["calo_diff"].min() * 1.1, data["calo_diff"].max() * 1.1]),
-                title="Calories remained by date",
-            ),
-            x=alt.X("date:T", title="Date"),
-            tooltip=["calo_diff"],
-        )
-        .properties(height=400, width=300)
-        .interactive()
-    )
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+from facenet_pytorch import fixed_image_standardization,  MTCNN, InceptionResnetV1
 
-
-    st.altair_chart(c5, use_container_width=True)
+standard_transform = transforms.Compose([
+                                np.float32,
+                                transforms.ToTensor(),
+                                fixed_image_standardization
+])
+mtcnn = MTCNN(keep_all=True, min_face_size=70, device=device)
+clf = joblib.load('svm.sav')
+model = InceptionResnetV1(pretrained='vggface2', dropout_prob=0.6, device=device).eval()
+def get_video_embedding(model, x):
+    embeds = model(x.to(device))
+    return embeds.detach().cpu().numpy()
+def face_extract(model, clf, frame, boxes):
+    idx, prob = '',[]
+    if len(boxes):
+        x = torch.stack([standard_transform(frame.crop(b)) for b in boxes])
+        embeds = get_video_embedding(model, x)
+        idx, prob = clf.predict(embeds), clf.predict_proba(embeds)
+    return idx, prob
+names_user = ['Ben Afflek', 'Elton John', 'Jerry Seinfeld', 'Madonna', 'Mindy Kaling']
+image = st.file_uploader("Choose an image to indentify user")
+if image:
+    iframe = Image.open(image).convert('RGB')
+    boxes, probs = mtcnn.detect(iframe)
+    names, prob = face_extract(model, clf, iframe, boxes)
+    if (prob.max() < 0.45):
+        st.info("No user detected")
+    else:
+        st.info("Welcome " + names_user[names[0]])
+        st.info(np.argmax(prob))
 
    
